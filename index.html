@@ -2,160 +2,118 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI表情解析 Webアナライザー</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI表情解析 Webアナライザー (Mobile v2.2)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- face-api.js の読み込み -->
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <style>
-        body { background-color: #0f172a; color: #e2e8f0; font-family: 'sans-serif'; overflow: hidden; }
-        .monitor-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; height: calc(100vh - 100px); padding: 1rem; }
+        body { background-color: #020617; color: #f8fafc; font-family: sans-serif; overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
         
-        /* 映像コンテナのスタイル */
-        .video-container { 
+        /* モバイルレイアウト：2/3を映像、1/3をデータに */
+        .app-container { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+        
+        .video-section { 
             position: relative; 
+            flex: 2; 
             background: #000; 
-            border-radius: 12px; 
-            overflow: hidden; 
-            display: flex; 
-            align-items: center; 
+            overflow: hidden;
+            display: flex;
+            align-items: center;
             justify-content: center;
-            border: 2px solid #334155;
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
         }
 
-        /* ビデオ要素 */
-        #webcam { width: 100%; height: 100%; object-fit: contain; z-index: 10; }
+        /* ビデオ自体は画面にフィット */
+        #webcam { width: 100%; height: 100%; object-fit: contain; }
 
-        /* 描画用キャンバス：ビデオの真上に重ねる */
+        /* キャンバス：映像の実描画範囲にJSで重ねる */
         #overlay { 
             position: absolute; 
             pointer-events: none; 
-            z-index: 20; 
+            z-index: 50; 
             display: block;
         }
+
+        .data-section { 
+            flex: 1; 
+            background: #0f172a;
+            overflow-y: auto;
+            padding: 1rem;
+            border-top: 1px solid #1e293b;
+            box-shadow: 0 -10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
         
-        .dashboard { display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; }
-        .stat-card { background: #1e293b; padding: 1.25rem; border-radius: 12px; border-left: 4px solid #3b82f6; transition: all 0.3s ease; }
-        .stat-card:hover { background: #1e293b; border-left-width: 6px; }
+        .stat-card { background: #1e293b; padding: 0.6rem; border-radius: 8px; border-left: 3px solid #3b82f6; }
         
-        /* 感情メーターのスタイル */
-        .bar-bg { background: #334155; height: 12px; border-radius: 6px; margin-top: 6px; overflow: hidden; }
-        .bar-fill { background: #3b82f6; height: 100%; width: 0%; transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .bar-bg { background: #334155; height: 8px; border-radius: 4px; margin-top: 4px; overflow: hidden; }
+        .bar-fill { background: #3b82f6; height: 100%; width: 0%; transition: width 0.3s ease-out; }
         
-        /* ローディング表示 */
         .loading-overlay { 
-            position: fixed; inset: 0; background: rgba(15, 23, 42, 0.98); 
+            position: fixed; inset: 0; background: #020617; 
             z-index: 100; display: flex; flex-direction: column; align-items: center; justify-content: center; 
         }
-
-        /* スクロールバーのカスタマイズ */
-        .dashboard::-webkit-scrollbar { width: 6px; }
-        .dashboard::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        
+        .label-text { font-size: 0.65rem; color: #94a3b8; font-weight: bold; text-transform: uppercase; }
+        .value-text { font-size: 0.85rem; font-family: monospace; font-weight: bold; color: #38bdf8; }
     </style>
 </head>
 <body>
 
-    <!-- ローディング画面 -->
+    <!-- 起動中画面 -->
     <div id="loading" class="loading-overlay">
-        <div class="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-blue-500 mb-6 mx-auto"></div>
-        <p class="text-2xl font-bold text-center text-white mb-2">AI表情解析システム起動中</p>
-        <p class="text-sm text-gray-400 text-center">座標同期エンジンを初期化しています...</p>
+        <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-cyan-500 mb-4"></div>
+        <p class="text-lg font-bold text-cyan-400">AIシステム起動中...</p>
+        <p class="text-xs text-slate-500">描画エンジンを同期しています</p>
     </div>
 
-    <!-- ヘッダー -->
-    <header class="p-4 bg-slate-900 border-b border-slate-800 flex justify-between items-center shadow-lg">
-        <div class="flex items-center gap-3">
-            <div class="p-2 bg-blue-600 rounded-lg">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-            </div>
-            <h1 class="text-xl font-bold text-blue-400">OpenFace Web Analyser <span class="text-xs font-normal text-gray-500 ml-2">統合版 v2.0</span></h1>
-        </div>
-        <div id="status" class="text-xs px-4 py-1.5 bg-green-900/40 text-green-400 border border-green-700/50 rounded-full flex items-center gap-2">
-            <span class="relative flex h-2 w-2">
-                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                <span class="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-            </span>
-            リアルタイム追跡中
-        </div>
-    </header>
-
-    <main class="monitor-grid">
-        <!-- メイン映像エリア -->
-        <div class="video-container shadow-2xl" id="container">
+    <div class="app-container">
+        <!-- 映像エリア (2/3) -->
+        <section class="video-section">
             <video id="webcam" autoplay muted playsinline></video>
+            <!-- 抽出点はここに描画される -->
             <canvas id="overlay"></canvas>
             
-            <!-- エラーメッセージ -->
-            <div id="error-msg" class="hidden absolute inset-0 flex items-center justify-center bg-black/90 p-8 text-center z-[60]">
-                <div class="max-w-md">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-red-500 mx-auto mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                    </svg>
-                    <p class="text-red-400 font-bold text-lg mb-2">カメラにアクセスできません</p>
-                    <p class="text-gray-400 text-sm">他のブラウザやアプリでカメラを使用していないか確認し、ページを更新してください。</p>
-                </div>
+            <div class="absolute top-4 left-4 z-40 bg-black/40 px-2 py-1 rounded backdrop-blur">
+                <span class="text-[10px] text-cyan-400 font-bold tracking-tighter">AI LANDMARK TRACKER</span>
             </div>
-        </div>
 
-        <!-- サイドバー：解析データ -->
-        <div class="dashboard">
+            <div id="error-msg" class="hidden absolute inset-0 flex items-center justify-center bg-slate-950/90 p-6 text-center z-[60]">
+                <p class="text-red-400 text-sm font-bold">カメラ起動失敗<br>設定を確認してリロードしてください</p>
+            </div>
+        </section>
+
+        <!-- UI解析エリア (1/3) -->
+        <section class="data-section">
+            <div class="flex justify-between items-end mb-3">
+                <h2 class="text-[10px] font-black text-slate-500 tracking-widest">REALTIME EXPRESSIONS</h2>
+                <span id="det-time" class="text-[9px] text-slate-500 font-mono">-- ms</span>
+            </div>
+
             <!-- 感情メーター -->
-            <div class="stat-card">
-                <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 border-b border-slate-700 pb-2 flex justify-between">
-                    <span>感情解析</span>
-                    <span class="text-blue-500">REALTIME</span>
-                </h2>
-                <div id="emotion-container" class="space-y-4">
-                    <!-- JSで動的に生成 -->
-                </div>
+            <div id="emotion-container" class="grid grid-cols-2 gap-x-3 gap-y-2 mb-4">
+                <!-- JS生成 -->
             </div>
 
-            <!-- 頭部姿勢データ -->
-            <div class="stat-card border-blue-500">
-                <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4 border-b border-slate-700 pb-2">頭部の向きと注目点</h2>
-                <div class="grid grid-cols-2 gap-y-4 gap-x-2 text-sm">
-                    <div class="bg-slate-800/50 p-2 rounded">
-                        <span class="text-gray-500 block text-[10px]">左右 (Yaw)</span>
-                        <span id="val-yaw" class="text-blue-400 font-mono font-bold text-lg">-</span>
-                    </div>
-                    <div class="bg-slate-800/50 p-2 rounded">
-                        <span class="text-gray-500 block text-[10px]">上下 (Pitch)</span>
-                        <span id="val-pitch" class="text-blue-400 font-mono font-bold text-lg">-</span>
-                    </div>
-                    <div class="bg-slate-800/50 p-2 rounded">
-                        <span class="text-gray-500 block text-[10px]">傾き (Roll)</span>
-                        <span id="val-roll" class="text-blue-400 font-mono font-bold text-lg">-</span>
-                    </div>
-                    <div class="bg-slate-800/50 p-2 rounded">
-                        <span class="text-gray-500 block text-[10px]">注目方向</span>
-                        <span id="val-gaze" class="text-cyan-400 font-bold text-lg">-</span>
-                    </div>
+            <h2 class="text-[10px] font-black text-slate-500 tracking-widest mb-2">POSE & GAZE DATA</h2>
+            <div class="grid grid-cols-2 gap-2">
+                <div class="stat-card">
+                    <span class="label-text">左右 (Yaw)</span>
+                    <div id="val-yaw" class="value-text">-</div>
+                </div>
+                <div class="stat-card">
+                    <span class="label-text">上下 (Pitch)</span>
+                    <div id="val-pitch" class="value-text">-</div>
+                </div>
+                <div class="stat-card">
+                    <span class="label-text">注目方向</span>
+                    <div id="val-gaze" class="value-text text-emerald-400">-</div>
+                </div>
+                <div class="stat-card">
+                    <span class="label-text">解析解像度</span>
+                    <div id="res-info" class="text-[0.6rem] text-slate-400">-</div>
                 </div>
             </div>
-
-            <!-- システム情報 -->
-            <div class="stat-card border-purple-500">
-                <h2 class="text-sm font-bold text-gray-400 uppercase tracking-widest mb-3 border-b border-slate-700 pb-2">解析ステータス</h2>
-                <div class="space-y-2">
-                    <div class="flex justify-between items-center text-xs">
-                        <span class="text-gray-400">入力解像度</span>
-                        <span id="res-info" class="text-white font-mono">-</span>
-                    </div>
-                    <div class="flex justify-between items-center text-xs">
-                        <span class="text-gray-400">レイテンシ</span>
-                        <span id="det-time" class="text-white font-mono">0 ms</span>
-                    </div>
-                </div>
-                <div class="mt-4 pt-3 border-t border-slate-800 flex items-center gap-2">
-                    <div class="w-3 h-3 rounded-full bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.8)]"></div>
-                    <span class="text-[10px] text-gray-400">68点 ランドマーク抽出中</span>
-                </div>
-            </div>
-        </div>
-    </main>
+        </section>
+    </div>
 
     <script>
         const video = document.getElementById('webcam');
@@ -163,28 +121,20 @@
         const loading = document.getElementById('loading');
         const emotionContainer = document.getElementById('emotion-container');
 
-        // 感情ラベルの日本語定義
         const EMOTIONS = {
-            neutral: '無表情',
-            happy: '喜び',
-            sad: '悲しみ',
-            angry: '怒り',
-            fearful: '恐れ',
-            disgusted: '嫌悪',
-            surprised: '驚き'
+            neutral: '平常', happy: '喜び', sad: '悲しみ',
+            angry: '怒り', fearful: '恐怖', disgusted: '嫌悪', surprised: '驚き'
         };
 
         const emotionElements = {};
 
-        // UIの初期化
         function initUI() {
-            emotionContainer.innerHTML = '';
             Object.keys(EMOTIONS).forEach(key => {
                 const div = document.createElement('div');
                 div.innerHTML = `
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="font-semibold text-gray-300">${EMOTIONS[key]}</span>
-                        <span id="pct-${key}" class="text-blue-400 font-mono">0%</span>
+                    <div class="flex justify-between text-[9px] mb-0.5">
+                        <span class="text-slate-400 font-bold">${EMOTIONS[key]}</span>
+                        <span id="pct-${key}" class="text-cyan-400 font-mono">0%</span>
                     </div>
                     <div class="bar-bg">
                         <div id="bar-${key}" class="bar-fill"></div>
@@ -198,7 +148,6 @@
             });
         }
 
-        // モデルの読み込み
         async function loadModels() {
             const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
             try {
@@ -209,82 +158,77 @@
                 ]);
                 startCamera();
             } catch (err) {
-                console.error("モデルロード失敗:", err);
-                loading.innerHTML = `<div class="text-red-500 p-8 text-center bg-slate-900 rounded-xl shadow-xl">
-                    <p class="font-bold text-xl mb-2">モデル読み込みエラー</p>
-                    <p class="text-sm">CDNからのデータ取得に失敗しました。<br>ネットワークを確認して再読込してください。</p>
-                </div>`;
+                loading.innerHTML = "<p class='text-red-500 p-4'>AIエンジンの読み込みに失敗しました</p>";
             }
         }
 
-        // カメラ起動
         async function startCamera() {
+            const constraints = {
+                video: { 
+                    facingMode: "user",
+                    width: { ideal: 640 }, 
+                    height: { ideal: 480 } 
+                }
+            };
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ 
-                    video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } 
-                });
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
-                
                 video.onloadedmetadata = () => {
-                    loading.style.opacity = '0';
-                    setTimeout(() => loading.style.display = 'none', 500);
-                    syncCanvas();
+                    loading.style.display = 'none';
+                    updateLayout();
                 };
             } catch (err) {
-                console.error(err);
                 document.getElementById('error-msg').classList.remove('hidden');
                 loading.style.display = 'none';
             }
         }
 
-        // キャンバスとビデオを完璧に同期させる
-        function syncCanvas() {
-            if (!video.videoWidth || video.videoWidth === 0) return null;
+        // ビデオの実際の表示サイズと位置を計算してキャンバスを重ねる
+        function updateLayout() {
+            if (!video.videoWidth) return null;
 
-            const videoRect = video.getBoundingClientRect();
+            const rect = video.getBoundingClientRect();
             const videoRatio = video.videoWidth / video.videoHeight;
-            const containerRatio = videoRect.width / videoRect.height;
+            const containerRatio = rect.width / rect.height;
 
-            let w, h, top, left;
-
+            let w, h, t, l;
             if (containerRatio > videoRatio) {
-                h = videoRect.height;
+                h = rect.height;
                 w = h * videoRatio;
-                top = 0;
-                left = (videoRect.width - w) / 2;
+                t = 0;
+                l = (rect.width - w) / 2;
             } else {
-                w = videoRect.width;
+                w = rect.width;
                 h = w / videoRatio;
-                left = 0;
-                top = (videoRect.height - h) / 2;
+                l = 0;
+                t = (rect.height - h) / 2;
             }
 
-            // Canvasの解像度とCSSサイズを一致させる
+            // 内部解像度とCSSサイズを強制同期
             canvas.width = w;
             canvas.height = h;
-            canvas.style.width = `${w}px`;
-            canvas.style.height = `${h}px`;
-            canvas.style.top = `${top}px`;
-            canvas.style.left = `${left}px`;
+            canvas.style.width = w + 'px';
+            canvas.style.height = h + 'px';
+            canvas.style.top = t + 'px';
+            canvas.style.left = l + 'px';
 
             return { width: w, height: h };
         }
 
-        // 解析ループ
         video.addEventListener('play', () => {
-            const runAnalysis = async () => {
+            const loop = async () => {
                 if (video.paused || video.ended) return;
-
-                const displaySize = syncCanvas();
+                
+                const displaySize = updateLayout();
                 if (!displaySize) {
-                    requestAnimationFrame(runAnalysis);
+                    requestAnimationFrame(loop);
                     return;
                 }
 
                 const startTime = performance.now();
                 
-                // 顔・ランドマーク・感情を同時検出
-                const results = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
+                // 顔検出
+                const results = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 }))
                     .withFaceLandmarks()
                     .withFaceExpressions();
 
@@ -293,81 +237,69 @@
 
                 if (results && results.length > 0) {
                     const resized = faceapi.resizeResults(results, displaySize);
-                    
-                    // 1. 抽出点の描画（明るいシアン色で網目を描く）
-                    // face-api.jsの描画ユーティリティを使用
-                    faceapi.draw.drawFaceLandmarks(canvas, resized);
-
-                    // 2. データの解析と反映（最初の1人分）
                     const det = resized[0];
-                    const expressions = det.expressions;
 
-                    // 感情メーター更新
+                    // --- ランドマークの描画 (確実に表示させるための自前ロジック) ---
+                    const points = det.landmarks.positions;
+                    ctx.fillStyle = '#00ff00'; // 蛍光グリーン
+                    ctx.strokeStyle = '#00ff00';
+                    ctx.lineWidth = 1.5;
+
+                    // 1. 全ての点を描く
+                    points.forEach(pt => {
+                        ctx.beginPath();
+                        ctx.arc(pt.x, pt.y, 1.8, 0, 2 * Math.PI);
+                        ctx.fill();
+                    });
+
+                    // 2. 輪郭線を薄く繋ぐ (オプション)
+                    ctx.globalAlpha = 0.4;
+                    faceapi.draw.drawFaceLandmarks(canvas, resized);
+                    ctx.globalAlpha = 1.0;
+
+                    // --- 数値データの更新 ---
+                    const exp = det.expressions;
                     Object.keys(EMOTIONS).forEach(key => {
-                        const score = expressions[key] || 0;
+                        const score = exp[key] || 0;
                         const pct = Math.round(score * 100);
                         emotionElements[key].bar.style.width = pct + '%';
                         emotionElements[key].text.innerText = pct + '%';
-                        
-                        // 優勢な感情を強調
-                        emotionElements[key].bar.style.backgroundColor = score > 0.6 ? '#10b981' : '#3b82f6';
+                        emotionElements[key].bar.style.backgroundColor = score > 0.5 ? '#10b981' : '#3b82f6';
                     });
 
-                    // 3. 頭部姿勢・注目方向の計算
-                    calculatePose(det.landmarks);
-                    
-                    document.getElementById('res-info').innerText = `${video.videoWidth} x ${video.videoHeight}`;
-                } else {
-                    // 非検出時のリセット
-                    Object.keys(EMOTIONS).forEach(key => {
-                        emotionElements[key].bar.style.width = '0%';
-                        emotionElements[key].text.innerText = '0%';
-                    });
+                    updatePose(det.landmarks);
+                    document.getElementById('res-info').innerText = `${video.videoWidth}x${video.videoHeight}`;
                 }
                 
-                document.getElementById('det-time').innerText = `${Math.round(performance.now() - startTime)} ms`;
-                requestAnimationFrame(runAnalysis);
+                document.getElementById('det-time').innerText = `${Math.round(performance.now() - startTime)}ms`;
+                requestAnimationFrame(loop);
             };
-
-            runAnalysis();
+            loop();
         });
 
-        // ランドマーク座標から擬似的に頭部の向きを算出
-        function calculatePose(landmarks) {
+        function updatePose(landmarks) {
             const nose = landmarks.getNose()[0];
             const leftEye = landmarks.getLeftEye()[0];
             const rightEye = landmarks.getRightEye()[3];
-            
-            // Yaw（左右）の計算
+            const midEyeX = (leftEye.x + rightEye.x) / 2;
+            const midEyeY = (leftEye.y + rightEye.y) / 2;
             const faceWidth = rightEye.x - leftEye.x;
-            const midX = (leftEye.x + rightEye.x) / 2;
-            const yaw = (nose.x - midX) / faceWidth * 60;
 
-            // Pitch（上下）の計算
-            const eyeLevelY = (leftEye.y + rightEye.y) / 2;
-            const eyeNoseDist = nose.y - eyeLevelY;
-            const pitch = (eyeNoseDist / faceWidth - 0.5) * 110;
+            const yaw = (nose.x - midEyeX) / faceWidth * 60;
+            const pitch = (nose.y - midEyeY) / faceWidth * 100 - 50;
 
             document.getElementById('val-yaw').innerText = (yaw > 0 ? '+' : '') + yaw.toFixed(1) + '°';
             document.getElementById('val-pitch').innerText = (pitch > 0 ? '+' : '') + pitch.toFixed(1) + '°';
-            document.getElementById('val-roll').innerText = '正常';
             
-            // 注目方向の判定
             let gaze = '正面';
-            if (yaw > 15) gaze = '左方向へ';
-            else if (yaw < -15) gaze = '右方向へ';
-            else if (pitch > 15) gaze = '下方';
-            else if (pitch < -18) gaze = '上方';
-            
+            if (yaw > 12) gaze = '左方向'; else if (yaw < -12) gaze = '右方向';
+            else if (pitch > 10) gaze = '下方'; else if (pitch < -10) gaze = '上方';
             document.getElementById('val-gaze').innerText = gaze;
         }
 
-        // 初期化実行
         initUI();
         loadModels();
-
-        // 画面リサイズへの適応
-        window.addEventListener('resize', syncCanvas);
+        window.addEventListener('resize', updateLayout);
     </script>
 </body>
 </html>
